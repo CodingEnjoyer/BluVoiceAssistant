@@ -1,0 +1,14 @@
+# Ignore virtual environments
+bluenv/
+venv/
+
+# Ignore Python cache files
+__pycache__/
+*.py[cod]
+
+# Ignore environment files (for secrets)
+.env
+
+# Ignore system-specific files
+.DS_Store
+*.log
