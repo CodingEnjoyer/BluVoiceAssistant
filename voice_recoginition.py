@@ -21,8 +21,9 @@ def get_voice_command():
         str: The recognized command in lowercase.
     """
     recognizer = sr.Recognizer()
-    with sr.Microphone as source:
+    with sr.Microphone() as source:
         print("Listening...")
+        recognizer.adjust_for_ambient_noise(source, duration=1)
         try:
             audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
         except sr.WaitTimeoutError:
@@ -30,7 +31,7 @@ def get_voice_command():
             return ''
         
     try:
-        command = recognizer.recognize_google_cloud(audio)
+        command = recognizer.recognize_google(audio)
         logger.info(f"Recognized command: {command}")
         return command.lower()
     except sr.UnknownValueError:
@@ -63,7 +64,7 @@ def execute_bluos_command(command, device_ip):
         "shuffle on": lambda: shuffle(device_ip, state = 1),
         "shuffle off": lambda: shuffle(device_ip, state = 0),
         "repeat on": lambda: repeat(device_ip, state = 1),
-        "repeat off": lambda: repeat(device_ip, state = 2)
+        "repeat off": lambda: repeat(device_ip, state = 2),
     }
 
     for key, action in command_mapping.items():
@@ -85,14 +86,15 @@ def speak(text):
     engine.say(text)
     engine.runAndWait()
 
-def wait_for_wake_word(wake_word="hey assistant"):
+def wait_for_wake_word(wake_word="hello"):
     recognizer = sr.Recognizer()
     with sr.Microphone() as source:
         speak("Waiting for wake word...")
+        recognizer.adjust_for_ambient_noise(source, duration=1)
         try:
             audio = recognizer.listen(source, timeout=10, phrase_time_limit=5)
             command = recognizer.recognize_google(audio).lower()
-            if wake_word in command:
+            if wake_word.lower() in command:
                 speak("Wake word detected!")
                 return True
         except sr.WaitTimeoutError:
