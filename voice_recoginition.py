@@ -1,13 +1,15 @@
+import azure.cognitiveservices.speech as speechsdk
+import os
 import speech_recognition as sr
-import pyttsx3
-import logging
 import platform
+from dotenv import load_dotenv
+import tempfile
+import time
 from bluos_api import *
 
-if platform.system() == "Linux":
-    engine = pyttsx3.init('espeak')
-else:
-    engine = pyttsx3.init()
+load_dotenv()
+azure_speech_key = os.getenv("AZURE_SPEECH_KEY")
+azure_region = os.getenv("AZURE_REGION")
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -25,23 +27,45 @@ def get_voice_command():
         print("Listening...")
         recognizer.adjust_for_ambient_noise(source, duration=1)
         try:
-            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=5)
         except sr.WaitTimeoutError:
             print("Listening timeout. Please speak more quickly.")
             return ''
         
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+        temp_audio.write(audio.get_wav_data())
+        temp_audio_path = temp_audio.name
+
     try:
-        command = recognizer.recognize_google(audio)
-        logger.info(f"Recognized command: {command}")
-        return command.lower()
-    except sr.UnknownValueError:
-        print("Sorry, I did not understand that.")
-        logger.warning("Could not understand audio input.")
-        return ''
-    except sr.RequestError as e:
+        speech_config = speechsdk.SpeechConfig(subscription=azure_speech_key, region=azure_region)
+        audio_input = speechsdk.audio.AudioConfig(filename=temp_audio_path)
+        speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_input)
+        result = speech_recognizer.recognize_once()
+
+        if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            command = result.text
+            speak(f"You said: {command}")
+            if any(keyword in command.lower() for keyword in ["turn off", "shut up"]):
+                speak("Turning off. Goodbye!")
+                exit(0)
+            return command.lower()
+        elif result.reason == speechsdk.ResultReason.NoMatch:
+            speak("Sorry, I did not understand that.")
+            return ''
+        elif result.reason == speechsdk.ResultReason.Canceled:
+            cancellation_details = result.cancellation_details
+            print(f"Speech recognition canceled: {cancellation_details.reason}")
+            return ''
+    except Exception as e:
         print(f"Could not request results; {e}")
-        logger.error(f"Speech recognition error: {e}")
         return ''
+    finally:
+        # Clean up temporary file
+        time.sleep(0.5)
+        try:
+            os.remove(temp_audio_path)
+        except PermissionError:
+            print(f"Could not delete temporary file: {temp_audio_path}")
     
 def execute_bluos_command(command, device_ip):
     """
@@ -53,7 +77,9 @@ def execute_bluos_command(command, device_ip):
     """
     command_mapping = {
         "play": lambda: play(device_ip),
+        "play music": lambda: play(device_ip),
         "pause": lambda: pause(device_ip),
+        "pause music": lambda: pause(device_ip),
         "stop": lambda: pause(device_ip),
         "volume up": lambda: set_volume(device_ip, level = 10),
         "volume down": lambda: set_volume(device_ip, level = -10),
@@ -78,13 +104,23 @@ def execute_bluos_command(command, device_ip):
 
 def speak(text):
     """
-    Make the assistant speak a given text.
+    Use Azure's Speech API to generate speech from text and play it.
     
     Args:
         text (str): The text to speak.
     """
-    engine.say(text)
-    engine.runAndWait()
+    try:
+        speech_config = speechsdk.SpeechConfig(subscription=azure_speech_key, region=azure_region)
+        speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config)
+        result = speech_synthesizer.speak_text_async(text).get()
+
+        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            print(f"Speech synthesized for text: {text}")
+        elif result.reason == speechsdk.ResultReason.Canceled:
+            cancellation_details = result.cancellation_details
+            print(f"Speech synthesis canceled: {cancellation_details.reason}")
+    except Exception as e:
+        print(f"Error generating speech: {e}")
 
 def wait_for_wake_word(wake_word="hello"):
     recognizer = sr.Recognizer()
