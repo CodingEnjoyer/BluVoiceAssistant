@@ -1,15 +1,23 @@
 import azure.cognitiveservices.speech as speechsdk
+from azure.ai.language.conversations import ConversationAnalysisClient
+from azure.core.credentials import AzureKeyCredential
 import os
 import speech_recognition as sr
 import platform
 from dotenv import load_dotenv
 import tempfile
 import time
-from bluos_api import *
+import requests
+import logging
+from .bluos_api import *
 
 load_dotenv()
 azure_speech_key = os.getenv("AZURE_SPEECH_KEY")
 azure_region = os.getenv("AZURE_REGION")
+azure_language_key = os.getenv("AZURE_LANGUAGE_KEY")
+azure_language_endpoint = os.getenv("AZURE_LANGUAGE_ENDPOINT")
+azure_clu_project_name = os.getenv("AZURE_CLU_PROJECT_NAME")
+azure_clu_deployment_name = os.getenv("AZURE_CLU_DEPLOYMENT_NAME")
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -27,7 +35,7 @@ def get_voice_command():
         print("Listening...")
         recognizer.adjust_for_ambient_noise(source, duration=1)
         try:
-            audio = recognizer.listen(source, timeout=5, phrase_time_limit=5)
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
         except sr.WaitTimeoutError:
             print("Listening timeout. Please speak more quickly.")
             return ''
@@ -66,6 +74,53 @@ def get_voice_command():
             os.remove(temp_audio_path)
         except PermissionError:
             print(f"Could not delete temporary file: {temp_audio_path}")
+
+
+def get_intent_from_clu(command):
+    """
+    Use Azure CLU to understand user's command.
+
+    Args:
+        command (str): The user's spoken command.
+
+    Returns:
+        dict: A dictionary containing the identified intent and entities.
+    """
+    try:
+        client = ConversationAnalysisClient(
+            endpoint=azure_language_endpoint,
+            credential=AzureKeyCredential(azure_language_key)
+        )
+
+        with client:
+            task = {
+                "kind": "Conversation",
+                "analysisInput": {
+                    "conversationItem": {
+                        "participantId": "user",
+                        "id": "1",
+                        "text": command
+                    }
+                },
+                "parameters": {
+                    "projectName": azure_clu_project_name,
+                    "deploymentName": azure_clu_deployment_name,
+                    "verbose": True
+                }
+            }
+
+            result = client.analyze_conversation(task=task)
+
+            prediction = result["result"]["prediction"]
+            intent = prediction["topIntent"]
+            entities = prediction.get("entities", [])
+
+            return {"intent": intent, "entities": entities}
+    
+    except Exception as e:
+        print(f"Could not request CLU results: {e}")
+        return {"intent": None, "entities": []}
+
     
 def execute_bluos_command(command, device_ip):
     """
@@ -75,32 +130,30 @@ def execute_bluos_command(command, device_ip):
         commands (str): The command to execute.
         device_ip (str): The IP address of the BluOS device.
     """
+    intent_data = get_intent_from_clu(command)
+    intent = intent_data.get("intent")
+    entities = intent_data.get("entities")
+
+    volume_level = next((int(entity["text"]) for entity in entities if entity["category"] == "Volume Level"), None)
+    volume_modifier = next((entity["text"].lower() for entity in entities if entity["category"] == "VolumeModifier"), None)
+
     command_mapping = {
-        "play": lambda: play(device_ip),
-        "play music": lambda: play(device_ip),
-        "pause": lambda: pause(device_ip),
-        "pause music": lambda: pause(device_ip),
-        "stop": lambda: pause(device_ip),
-        "volume up": lambda: set_volume(device_ip, level = 10),
-        "volume down": lambda: set_volume(device_ip, level = -10),
-        "skip": lambda: skip(device_ip),
-        "next": lambda: skip(device_ip),
-        "back": lambda: back(device_ip),
-        "previous": lambda: back(device_ip),
-        "shuffle on": lambda: shuffle(device_ip, state = 1),
-        "shuffle off": lambda: shuffle(device_ip, state = 0),
-        "repeat on": lambda: repeat(device_ip, state = 1),
-        "repeat off": lambda: repeat(device_ip, state = 2),
+        "PlayMusic": lambda: play(device_ip),
+        "PausePlayback": lambda: pause(device_ip),
+        "SetVolume": lambda: set_volume(device_ip, level=volume_level) if volume_modifier == "to" else None,
+        "AdjustVolume": lambda: adjust_volume(device_ip, db_change=volume_level) if volume_modifier == "by" else None,
+        "Mute": lambda: mute(device_ip, mute_state=1),
+        "Unmute": lambda: mute(device_ip, mute_state=0),
+        "SkipTrack": lambda: skip(device_ip),
+        "TurnOff": lambda: (speak("Turning off. Goodbye!"), exit(0))
     }
 
-    for key, action in command_mapping.items():
-        if key in command:
-            action()
-            return
-        
-    print("Command not recognized. Please try again.")
-    logger.warning(f"Command not recognized: {command}")
-
+    action = command_mapping.get(intent)
+    if action:
+        action()
+    else:
+        print("Command not recognized. Please try again.")
+        logger.warning(f"Command not recognized: {command}")
 
 def speak(text):
     """
