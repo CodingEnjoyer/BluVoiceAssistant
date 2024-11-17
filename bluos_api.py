@@ -56,6 +56,9 @@ def send_command(device_ip, command, params=None, timeout=None):
         response.raise_for_status()
         logger.info(f"Executed command '{command}' successfully.")
 
+        if not response.content.strip():
+            return None
+
         # Parse the XML response
         try:
             root = ET.fromstring(response.content)
