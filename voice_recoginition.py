@@ -23,6 +23,22 @@ azure_clu_deployment_name = os.getenv("AZURE_CLU_DEPLOYMENT_NAME")
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+def get_microphone_index(keyword):
+    """
+    Searches for a microphone whose name contains the given keyword and returns its index.
+
+    Args:
+        keyword(str): The keyword to search for in the device name.
+
+    Return:
+        int or None: The matching device index, if any.
+    """
+    mic_names = sr.Microphone.list_microphone_names()
+    for idx, name in enumerate(mic_names):
+        if keyword.lower() in name.lower():
+            return idx
+    return None
+
 def get_voice_command():
     """
     Capture a voice command from the user.
@@ -31,7 +47,12 @@ def get_voice_command():
         str: The recognized command in lowercase.
     """
     recognizer = sr.Recognizer()
-    with sr.Microphone(device_index=1, sample_rate=48000) as source:
+    mic_index = get_microphone_index("seeed-2mic-voicecard")
+
+    if mic_index is None:
+        raise ValueError("Desired microphone not found.")
+
+    with sr.Microphone(device_index=mic_index, sample_rate=48000) as source:
         print("Listening...")
         recognizer.adjust_for_ambient_noise(source, duration=1)
         try:
@@ -179,8 +200,13 @@ def speak(text):
 
 def wait_for_wake_word(wake_word="hello"):
     recognizer = sr.Recognizer()
-    with sr.Microphone(device_index=1, sample_rate=48000) as source:
-        #speak("Waiting for wake word...")
+    mic_index = get_microphone_index("seeed-2mic-voicecard")
+
+    if mic_index is None:
+        raise ValueError("Desired microphone not found.")
+    
+    with sr.Microphone(device_index=mic_index, sample_rate=48000) as source:
+        speak("Waiting for wake word...")
         recognizer.adjust_for_ambient_noise(source, duration=1)
         try:
             audio = recognizer.listen(source, timeout=10, phrase_time_limit=5)
