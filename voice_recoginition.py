@@ -31,7 +31,7 @@ def get_voice_command():
         str: The recognized command in lowercase.
     """
     recognizer = sr.Recognizer()
-    with sr.Microphone() as source:
+    with sr.Microphone(device_index=1, sample_rate=48000) as source:
         print("Listening...")
         recognizer.adjust_for_ambient_noise(source, duration=1)
         try:
@@ -179,8 +179,8 @@ def speak(text):
 
 def wait_for_wake_word(wake_word="hello"):
     recognizer = sr.Recognizer()
-    with sr.Microphone() as source:
-        speak("Waiting for wake word...")
+    with sr.Microphone(device_index=1, sample_rate=48000) as source:
+        #speak("Waiting for wake word...")
         recognizer.adjust_for_ambient_noise(source, duration=1)
         try:
             audio = recognizer.listen(source, timeout=10, phrase_time_limit=5)
