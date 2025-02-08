@@ -130,6 +130,8 @@ def execute_bluos_command(command, device_ip):
         commands (str): The command to execute.
         device_ip (str): The IP address of the BluOS device.
     """
+    print(f"Sending command '{command}' to device '{device_ip}'")
+    
     intent_data = get_intent_from_clu(command)
     intent = intent_data.get("intent")
     entities = intent_data.get("entities")

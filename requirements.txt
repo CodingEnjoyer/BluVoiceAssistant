@@ -1,4 +1,4 @@
-azure-cognitiveservices-speech==1.19.0
+azure-cognitiveservices-speech==1.42.0
 azure-ai-language-conversations==1.0.0
 SpeechRecognition==3.8.1
 python-dotenv==1.0.0

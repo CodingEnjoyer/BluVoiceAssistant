@@ -1,11 +1,11 @@
 import requests
-
-device_ip = '192.168.68.50'
+import os
+DEVICE_IP = os.getenv("DEVICE_IP")
 
 def test_bluos_api():
     try:
         # Send GET request to BluOS device
-        response = requests.get(f'http://{device_ip}:11000/Status')
+        response = requests.get(f'http://{DEVICE_IP}:11000/Status')
         response.raise_for_status()
 
         print("Response: ")
